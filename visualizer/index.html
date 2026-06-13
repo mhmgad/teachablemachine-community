@@ -547,9 +547,12 @@
 /* ══════════════════════════════════════════════════════════════════
    State
 ══════════════════════════════════════════════════════════════════ */
-const SIZE = 224;     // target image size
-let srcImg = null;    // HTMLImageElement loaded by user
-let resizedPixels = null; // Uint8ClampedArray, SIZE×SIZE×4 (RGBA)
+const SIZE = 224;           // target image size (MobileNet expects 224×224)
+const NORM_DIVISOR = 127;   // normalisation: x / NORM_DIVISOR - 1  →  [-1, 1]
+const HIST_SCALE   = 100;   // shift factor for mapping [-1,1] → histogram bucket index
+const BYTES_PER_PIXEL = 4;  // RGBA — 4 bytes per pixel in ImageData
+let srcImg = null;          // HTMLImageElement loaded by user
+let resizedPixels = null;   // Uint8ClampedArray, SIZE×SIZE×BYTES_PER_PIXEL (RGBA)
 let histChart = null, trainLossChart = null, trainAccChart = null, embeddingChart = null;
 
 /* ══════════════════════════════════════════════════════════════════
@@ -728,7 +731,7 @@ function drawChannelView(ch) {
   const id = ctx.createImageData(SIZE, SIZE);
   const d = id.data;
   for (let i=0; i<SIZE*SIZE; i++) {
-    const base = i*4;
+    const base = i * BYTES_PER_PIXEL;
     const v = ch==='r' ? resizedPixels[base] : ch==='g' ? resizedPixels[base+1] : resizedPixels[base+2];
     d[base]   = ch==='r' ? v : 0;
     d[base+1] = ch==='g' ? v : 0;
@@ -744,7 +747,7 @@ function buildPixelGrid() {
   for (let row=0; row<n; row++) {
     const tr = document.createElement('tr');
     for (let col=0; col<n; col++) {
-      const i = (row * SIZE + col) * 4;
+      const i = (row * SIZE + col) * BYTES_PER_PIXEL;
       const r = resizedPixels[i], g = resizedPixels[i+1], b = resizedPixels[i+2];
       const lum = 0.299*r + 0.587*g + 0.114*b;
       const fg = lum > 140 ? '#000' : '#fff';
@@ -762,13 +765,13 @@ function buildPixelGrid() {
 /* ── Step 4 – normalisation ── */
 function buildHistChart() {
   const raw = new Array(256).fill(0);
-  const norm = new Array(201).fill(0); // -100..+100 mapped to index
-  for (let i=0; i<resizedPixels.length; i+=4) {
+  const norm = new Array(2 * HIST_SCALE + 1).fill(0); // -HIST_SCALE..+HIST_SCALE mapped to index
+  for (let i=0; i<resizedPixels.length; i+=BYTES_PER_PIXEL) {
     for (let c=0;c<3;c++) {
       const v = resizedPixels[i+c];
       raw[v]++;
-      const nv = Math.round((v/127 - 1) * 100 + 100); // shift to 0..200
-      if (nv>=0 && nv<=200) norm[nv]++;
+      const nv = Math.round((v/NORM_DIVISOR - 1) * HIST_SCALE + HIST_SCALE); // shift to 0..200
+      if (nv>=0 && nv<=2*HIST_SCALE) norm[nv]++;
     }
   }
   if (histChart) histChart.destroy();
@@ -800,8 +803,8 @@ function buildNormTable() {
   while (tbody.rows.length > 1) tbody.deleteRow(1);
   for (const x of samples) {
     const tr = document.createElement('tr');
-    const norm = (x/127 - 1).toFixed(4);
-    const mid  = (x/127).toFixed(4);
+    const norm = (x/NORM_DIVISOR - 1).toFixed(4);
+    const mid  = (x/NORM_DIVISOR).toFixed(4);
     tr.innerHTML = `<td>${x}</td><td>${mid}</td><td style="color:var(--green);font-weight:700">${norm}</td>`;
     tbody.appendChild(tr);
   }
@@ -815,7 +818,7 @@ function drawGrayscale() {
   const id = ctx.createImageData(SIZE,SIZE);
   const d = id.data;
   for (let i=0; i<SIZE*SIZE; i++) {
-    const base = i*4;
+    const base = i * BYTES_PER_PIXEL;
     const r=resizedPixels[base], g=resizedPixels[base+1], b=resizedPixels[base+2];
     const y = Math.round(0.2989*r + 0.5870*g + 0.1140*b);
     d[base]=d[base+1]=d[base+2]=y; d[base+3]=255;
@@ -873,9 +876,9 @@ function drawVectorBars() {
   const N = 1280;
   // simulate feature activations using pixel statistics
   const vals = [];
-  const step = Math.floor(resizedPixels.length / (N * 4)) || 1;
+  const step = Math.floor(resizedPixels.length / (N * BYTES_PER_PIXEL)) || 1;
   for (let i=0; i<N; i++) {
-    const idx = ((i * step) % (SIZE*SIZE)) * 4;
+    const idx = ((i * step) % (SIZE*SIZE)) * BYTES_PER_PIXEL;
     const r=resizedPixels[idx], g=resizedPixels[idx+1], b=resizedPixels[idx+2];
     vals.push((0.2989*r + 0.5870*g + 0.1140*b) / 255);
   }
