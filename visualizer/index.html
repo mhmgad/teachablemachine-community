@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Image Pipeline Visualizer — Teachable Machine</title>
+
+  <!-- KaTeX for math rendering -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css" />
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/contrib/auto-render.min.js"
+    onload="renderMathInElement(document.body, {delimiters:[
+      {left:'$$',right:'$$',display:true},
+      {left:'$',right:'$',display:false}
+    ]})"></script>
+
+  <!-- Chart.js for training plots -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+  <style>
+    /* ── global ──────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --orange: #f78166;
+      --purple: #bc8cff;
+      --yellow: #e3b341;
+      --radius: 12px;
+      --font: 'Segoe UI', system-ui, sans-serif;
+    }
+    body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
+
+    /* ── header ──────────────────────────────────────── */
+    header {
+      background: linear-gradient(135deg, #1a2a4a 0%, #0d1117 60%);
+      border-bottom: 1px solid var(--border);
+      padding: 28px 40px 20px;
+      text-align: center;
+    }
+    header h1 { font-size: 2rem; color: var(--accent); letter-spacing: -0.5px; }
+    header p  { color: var(--muted); margin-top: 6px; font-size: 0.95rem; max-width: 680px; margin-inline: auto; }
+
+    /* ── layout ──────────────────────────────────────── */
+    .main-wrap { max-width: 1100px; margin: 0 auto; padding: 32px 20px 60px; }
+
+    /* ── upload zone ─────────────────────────────────── */
+    #upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+    }
+    #upload-zone:hover, #upload-zone.drag-over { border-color: var(--accent); background: #161d28; }
+    #upload-zone .icon { font-size: 3rem; }
+    #upload-zone p { color: var(--muted); margin-top: 10px; }
+    #upload-zone input[type=file] { display: none; }
+    .btn {
+      display: inline-block; margin-top: 14px; padding: 10px 24px;
+      background: var(--accent); color: #0d1117; border: none;
+      border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 0.95rem;
+      transition: opacity .15s;
+    }
+    .btn:hover { opacity: .85; }
+    .btn-outline {
+      background: transparent; border: 1px solid var(--accent); color: var(--accent);
+    }
+    .btn-sm { padding: 6px 14px; font-size: 0.85rem; }
+
+    /* ── pipeline ────────────────────────────────────── */
+    #pipeline { display: none; margin-top: 36px; }
+
+    .step-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 28px;
+      overflow: hidden;
+      animation: fadeSlideIn .4s ease both;
+    }
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .step-card .step-header {
+      display: flex; align-items: center; gap: 14px;
+      padding: 16px 20px;
+      background: #1c2230;
+      border-bottom: 1px solid var(--border);
+    }
+    .step-badge {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: var(--accent); color: #0d1117;
+      font-weight: 800; font-size: 0.9rem;
+      display: grid; place-items: center; flex-shrink: 0;
+    }
+    .step-header h2 { font-size: 1.05rem; flex: 1; }
+    .step-header .tag {
+      background: #0d1117; border: 1px solid var(--border);
+      border-radius: 20px; padding: 2px 10px; font-size: 0.75rem; color: var(--muted);
+    }
+    .step-body { padding: 20px 24px; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+    @media(max-width:700px){ .two-col{ grid-template-columns: 1fr; } }
+
+    /* ── canvas & image ──────────────────────────────── */
+    .canvas-wrap {
+      background: #0d1117; border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px; text-align: center;
+    }
+    .canvas-wrap canvas, .canvas-wrap img { max-width: 100%; border-radius: 4px; display: block; margin: auto; }
+    .canvas-label { font-size: 0.75rem; color: var(--muted); margin-top: 6px; }
+
+    /* ── math equations ──────────────────────────────── */
+    .eq-box {
+      background: #0d1117; border-left: 3px solid var(--purple);
+      border-radius: 0 8px 8px 0; padding: 14px 18px;
+      margin: 12px 0; font-size: 0.95rem;
+    }
+    .eq-box .eq-title { font-size: 0.72rem; text-transform: uppercase;
+      color: var(--purple); letter-spacing: .06em; margin-bottom: 6px; }
+
+    /* ── pixel grid ──────────────────────────────────── */
+    #pixel-grid-container {
+      overflow: auto; max-height: 320px;
+    }
+    .pixel-grid {
+      border-collapse: collapse; font-size: 0.65rem;
+      font-family: monospace; margin: auto;
+    }
+    .pixel-grid td {
+      width: 26px; height: 20px; text-align: center;
+      border: 1px solid #1e2530; color: #fff; font-size: 0.6rem;
+    }
+
+    /* ── histogram ───────────────────────────────────── */
+    .chart-container { position: relative; height: 200px; }
+
+    /* ── vector viz ──────────────────────────────────── */
+    #vector-bar-wrap { overflow-x: auto; }
+    #vector-bars {
+      display: flex; gap: 1px; align-items: flex-end;
+      height: 80px; padding: 0 2px;
+    }
+    .vbar { flex-shrink: 0; width: 3px; border-radius: 2px 2px 0 0; transition: height .3s; }
+
+    /* ── training section ────────────────────────────── */
+    .training-chart-wrap { position: relative; height: 260px; }
+
+    /* ── tabs ────────────────────────────────────────── */
+    .tabs { display: flex; gap: 4px; margin-bottom: 14px; flex-wrap: wrap; }
+    .tab-btn {
+      padding: 6px 16px; border-radius: 6px; border: 1px solid var(--border);
+      background: transparent; color: var(--muted); cursor: pointer; font-size: 0.85rem;
+      transition: background .15s, color .15s;
+    }
+    .tab-btn.active { background: var(--accent); color: #0d1117; border-color: var(--accent); font-weight: 700; }
+
+    /* ── info callout ────────────────────────────────── */
+    .info { background: #1a2a4a; border: 1px solid #2a4a7a; border-radius: 8px;
+      padding: 12px 16px; font-size: 0.88rem; color: #b0c4de; margin-top: 12px; }
+    .info strong { color: var(--accent); }
+
+    /* ── stat chips ──────────────────────────────────── */
+    .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+    .stat-chip {
+      background: #1c2230; border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 14px; font-size: 0.82rem;
+    }
+    .stat-chip span { color: var(--accent); font-weight: 700; font-size: 1rem; display: block; }
+
+    /* ── normalisation sample table ──────────────────── */
+    .norm-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin-top: 10px; }
+    .norm-table th { background: #1c2230; padding: 6px 10px; text-align: center;
+      color: var(--muted); font-weight: 600; border: 1px solid var(--border); }
+    .norm-table td { padding: 5px 10px; text-align: center; border: 1px solid var(--border); }
+    .norm-table tr:hover td { background: #1c2230; }
+
+    /* ── grayscale weights ───────────────────────────── */
+    .weight-bar-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 0.85rem; }
+    .weight-bar { height: 14px; border-radius: 3px; }
+
+    /* ── footer ──────────────────────────────────────── */
+    footer { text-align: center; color: var(--muted); font-size: 0.78rem; padding: 20px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🔬 Image Pipeline Visualizer</h1>
+  <p>Upload any image and watch every mathematical transformation applied to it — from raw pixels to the 1-D feature vector used for training in <strong>Teachable Machine</strong>.</p>
+</header>
+
+<div class="main-wrap">
+
+  <!-- ── Upload ── -->
+  <div id="upload-zone" onclick="document.getElementById('file-input').click()">
+    <div class="icon">🖼️</div>
+    <p>Drag & drop an image, or click to browse</p>
+    <input type="file" id="file-input" accept="image/*" />
+    <button class="btn" onclick="event.stopPropagation(); document.getElementById('file-input').click()">Choose Image</button>
+  </div>
+
+  <!-- ── Sample buttons ── -->
+  <div style="text-align:center; margin-top:16px; color:var(--muted); font-size:.85rem;">
+    or try a built-in sample:
+    <button class="btn btn-outline btn-sm" style="margin-left:8px" onclick="loadSampleImage('cat')">🐱 Cat</button>
+    <button class="btn btn-outline btn-sm" onclick="loadSampleImage('dog')">🐶 Dog</button>
+    <button class="btn btn-outline btn-sm" onclick="loadSampleImage('gradient')">🌈 Gradient</button>
+  </div>
+
+  <!-- ── Pipeline ── -->
+  <div id="pipeline">
+
+    <!-- Step 0: Original -->
+    <div class="step-card" style="animation-delay:.05s">
+      <div class="step-header">
+        <div class="step-badge">0</div>
+        <h2>Original Image</h2>
+        <span class="tag">input</span>
+      </div>
+      <div class="step-body">
+        <div class="two-col">
+          <div>
+            <div class="canvas-wrap">
+              <canvas id="canvas-original"></canvas>
+              <div class="canvas-label" id="label-original">–</div>
+            </div>
+          </div>
+          <div>
+            <div class="eq-box">
+              <div class="eq-title">Representation</div>
+              Each pixel stores three 8-bit integers:<br>
+              $$I \in \mathbb{Z}^{H \times W \times 3}, \quad I_{i,j} = (R, G, B), \quad R,G,B \in [0, 255]$$
+            </div>
+            <div class="stats" id="stats-original"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 1: Center-crop to square -->
+    <div class="step-card" style="animation-delay:.1s">
+      <div class="step-header">
+        <div class="step-badge" style="background:var(--green)">1</div>
+        <h2>Center-Crop to Square</h2>
+        <span class="tag">geometry</span>
+      </div>
+      <div class="step-body">
+        <div class="two-col">
+          <div>
+            <div class="canvas-wrap">
+              <canvas id="canvas-crop"></canvas>
+              <div class="canvas-label" id="label-crop">–</div>
+            </div>
+          </div>
+          <div>
+            <div class="eq-box">
+              <div class="eq-title">Crop Math</div>
+              $$s = \min(H,\,W)$$
+              $$x_0 = \left\lfloor\frac{W - s}{2}\right\rfloor,\quad y_0 = \left\lfloor\frac{H - s}{2}\right\rfloor$$
+              $$I_{\text{crop}} = I[y_0 : y_0+s,\; x_0 : x_0+s]$$
+            </div>
+            <div class="info">
+              <strong>Why?</strong> Neural networks expect a fixed aspect ratio (1:1). Cropping from the centre keeps the subject visible without distortion.
+            </div>
+            <div class="stats" id="stats-crop"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: Resize to 224×224 -->
+    <div class="step-card" style="animation-delay:.15s">
+      <div class="step-header">
+        <div class="step-badge" style="background:var(--yellow); color:#0d1117">2</div>
+        <h2>Resize to 224 × 224</h2>
+        <span class="tag">geometry</span>
+      </div>
+      <div class="step-body">
+        <div class="two-col">
+          <div>
+            <div class="canvas-wrap">
+              <canvas id="canvas-resize" width="224" height="224"></canvas>
+              <div class="canvas-label">224 × 224 px</div>
+            </div>
+          </div>
+          <div>
+            <div class="eq-box">
+              <div class="eq-title">Bilinear Interpolation (per channel)</div>
+              $$\text{scale} = \frac{224}{s}$$
+              $$I_{\text{resize}}[i,j] = I_{\text{crop}}\!\left[\frac{i}{\text{scale}},\,\frac{j}{\text{scale}}\right]$$
+              <br>
+              For a point $(x,y)$ between four neighbours $Q_{11},Q_{12},Q_{21},Q_{22}$:
+              $$P = \frac{1}{(x_2-x_1)(y_2-y_1)}\bigl[(x_2-x)(y_2-y)\,Q_{11} + (x-x_1)(y_2-y)\,Q_{21}$$
+              $$\quad+(x_2-x)(y-y_1)\,Q_{12} + (x-x_1)(y-y_1)\,Q_{22}\bigr]$$
+            </div>
+            <div class="info">MobileNet was pre-trained on <strong>224 × 224</strong> images, so every input must match this exact size.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Pixel Matrix -->
+    <div class="step-card" style="animation-delay:.2s">
+      <div class="step-header">
+        <div class="step-badge" style="background:var(--purple)">3</div>
+        <h2>Pixel Matrix (Raw Values)</h2>
+        <span class="tag">data</span>
+      </div>
+      <div class="step-body">
+        <div class="tabs" id="channel-tabs">
+          <button class="tab-btn active" data-ch="rgb"  onclick="showChannel('rgb')">RGB Combined</button>
+          <button class="tab-btn"        data-ch="r"    onclick="showChannel('r')">R Channel</button>
+          <button class="tab-btn"        data-ch="g"    onclick="showChannel('g')">G Channel</button>
+          <button class="tab-btn"        data-ch="b"    onclick="showChannel('b')">B Channel</button>
+        </div>
+        <div class="two-col">
+          <div>
+            <div class="canvas-wrap" style="background:#000">
+              <canvas id="canvas-channel" width="224" height="224"></canvas>
+              <div class="canvas-label" id="label-channel">RGB — 8 × 8 corner sample shown in table</div>
+            </div>
+          </div>
+          <div>
+            <div class="eq-box">
+              <div class="eq-title">Tensor Shape</div>
+              $$\mathbf{T} \;\in\; \mathbb{Z}^{224 \times 224 \times 3}$$
+              Total values: $224 \times 224 \times 3 = 150\,528$
+            </div>
+            <p style="font-size:.82rem;color:var(--muted);margin:10px 0 4px">Top-left 8×8 pixel sample (R / G / B):</p>
+            <div id="pixel-grid-container">
+              <table class="pixel-grid" id="pixel-grid"></table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 4: Normalisation -->
+    <div class="step-card" style="animation-delay:.25s">
+      <div class="step-header">
+        <div class="step-badge" style="background:var(--orange)">4</div>
+        <h2>Normalise to [−1, 1]</h2>
+        <span class="tag">math</span>
+      </div>
+      <div class="step-body">
+        <div class="two-col">
+          <div>
+            <div class="chart-container">
+              <canvas id="chart-hist"></canvas>
+            </div>
+            <div class="canvas-label" style="margin-top:4px">Pixel intensity histogram (before vs after normalisation)</div>
+          </div>
+          <div>
+            <div class="eq-box">
+              <div class="eq-title">Normalisation Formula</div>
+              $$\hat{x} = \frac{x}{127} - 1, \quad x \in [0,\,255]$$
+              <br>
+              $$\hat{x}_{\min} = \frac{0}{127}-1 = -1 \qquad \hat{x}_{\max} = \frac{255}{127}-1 \approx +1$$
+            </div>
+            <div class="info">
+              <strong>Why normalise?</strong> Gradient descent converges much faster when all features share the same scale. Keeping values in $[-1, 1]$ prevents exploding/vanishing gradients.
+            </div>
+            <p style="font-size:.82rem;color:var(--muted);margin:12px 0 4px">Sample pixel transformations:</p>
+            <table class="norm-table" id="norm-table">
+              <tr>
+                <th>Raw $x$</th>
+                <th>$x / 127$</th>
+                <th>$\hat{x} = x/127 - 1$</th>
+              </tr>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 5: Grayscale (optional) -->
+    <div class="step-card" style="animation-delay:.3s">
+      <div class="step-header">
+        <div class="step-badge" style="background:#40c9b0">5</div>
+        <h2>Grayscale Conversion (optional)</h2>
+        <span class="tag">math · optional</span>
+      </div>
+      <div class="step-body">
+        <div class="two-col">
+          <div>
+            <div class="canvas-wrap">
+              <canvas id="canvas-gray" width="224" height="224"></canvas>
+              <div class="canvas-label">Luminance image — shape [224 × 224 × 1]</div>
+            </div>
+          </div>
+          <div>
+            <div class="eq-box">
+              <div class="eq-title">ITU-R BT.601 Luma</div>
+              $$Y = 0.2989\,R + 0.5870\,G + 0.1140\,B$$
+            </div>
+            <p style="font-size:.85rem; color:var(--muted); margin:10px 0 6px">Channel weights (human eye sensitivity):</p>
+            <div class="weight-bar-row">
+              <div style="width:60px;color:#f66">Red</div>
+              <div class="weight-bar" style="width:calc(0.2989*200px);background:#f66"></div>
+              <span>0.2989</span>
+            </div>
+            <div class="weight-bar-row">
+              <div style="width:60px;color:#6f6">Green</div>
+              <div class="weight-bar" style="width:calc(0.5870*200px);background:#6f6"></div>
+              <span>0.5870</span>
+            </div>
+            <div class="weight-bar-row">
+              <div style="width:60px;color:#68f">Blue</div>
+              <div class="weight-bar" style="width:calc(0.1140*200px);background:#68f"></div>
+              <span>0.1140</span>
+            </div>
+            <div class="info" style="margin-top:12px">
+              Enabled when training a <strong>grayscale model</strong>. Tensor shape changes from [224,224,3] → [224,224,1].
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 6: Batch + Expand dims -->
+    <div class="step-card" style="animation-delay:.35s">
+      <div class="step-header">
+        <div class="step-badge" style="background:#d29922">6</div>
+        <h2>Add Batch Dimension</h2>
+        <span class="tag">tensor</span>
+      </div>
+      <div class="step-body">
+        <div class="eq-box">
+          <div class="eq-title">expandDims(0)</div>
+          $$\mathbf{T}_{\text{batch}} = \mathbf{T}[224,224,3]\;\xrightarrow{\text{expandDims}}\;\mathbf{T}_{\text{batch}}[1,224,224,3]$$
+        </div>
+        <div class="info">
+          Neural networks process data in <strong>batches</strong>. The outer dimension $B$ indicates how many images are in the batch. During training $B > 1$; for single inference $B = 1$.
+        </div>
+        <div style="margin-top:14px; overflow-x:auto">
+          <svg id="shape-svg" width="700" height="80" style="max-width:100%"></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 7: MobileNet → 1-D vector -->
+    <div class="step-card" style="animation-delay:.4s">
+      <div class="step-header">
+        <div class="step-badge" style="background:#8957e5">7</div>
+        <h2>MobileNet Feature Extraction → 1-D Vector</h2>
+        <span class="tag">deep learning</span>
+      </div>
+      <div class="step-body">
+        <div class="eq-box">
+          <div class="eq-title">Global Average Pooling</div>
+          $$\mathbf{F}_{c} = \frac{1}{H' W'}\sum_{i=1}^{H'}\sum_{j=1}^{W'} A_{i,j,c} \qquad c = 1,\ldots,C$$
+          <br>
+          MobileNetV2: $A \in \mathbb{R}^{7 \times 7 \times 1280} \;\xrightarrow{\text{GAP}}\; \mathbf{F} \in \mathbb{R}^{1280}$
+        </div>
+        <p style="font-size:.85rem; color:var(--muted); margin:12px 0 4px">Simulated feature vector (1280 values):</p>
+        <div id="vector-bar-wrap"><div id="vector-bars"></div></div>
+        <div class="info" style="margin-top:12px">
+          This <strong>1280-dimensional vector</strong> is the compact "fingerprint" of the image. It is passed to the small classification head you train in Teachable Machine.
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 8: Training visualisation -->
+    <div class="step-card" style="animation-delay:.45s">
+      <div class="step-header">
+        <div class="step-badge" style="background:var(--orange)">8</div>
+        <h2>Training — Loss &amp; Gradient Descent</h2>
+        <span class="tag">training</span>
+      </div>
+      <div class="step-body">
+        <div class="two-col">
+          <div>
+            <div class="training-chart-wrap">
+              <canvas id="chart-train-loss"></canvas>
+            </div>
+            <div class="canvas-label">Cross-Entropy Loss per epoch</div>
+          </div>
+          <div>
+            <div class="training-chart-wrap">
+              <canvas id="chart-train-acc"></canvas>
+            </div>
+            <div class="canvas-label">Accuracy per epoch</div>
+          </div>
+        </div>
+        <div class="eq-box" style="margin-top:18px">
+          <div class="eq-title">Cross-Entropy Loss (Softmax output)</div>
+          $$\mathcal{L} = -\sum_{k=1}^{K} y_k \log\bigl(\hat{p}_k\bigr)$$
+          $$\hat{p}_k = \frac{e^{z_k}}{\sum_{j=1}^{K} e^{z_j}} \qquad \text{(Softmax)}$$
+        </div>
+        <div class="eq-box">
+          <div class="eq-title">Gradient Descent Weight Update</div>
+          $$\theta \;\leftarrow\; \theta - \eta\,\nabla_\theta \mathcal{L}$$
+          where $\eta$ is the learning rate and $\nabla_\theta \mathcal{L}$ is the gradient of the loss w.r.t. weights $\theta$.
+        </div>
+        <div style="text-align:center; margin-top:14px">
+          <button class="btn" onclick="animateTraining()">▶ Animate Training</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 9: Decision boundary / 2-D embedding -->
+    <div class="step-card" style="animation-delay:.5s">
+      <div class="step-header">
+        <div class="step-badge" style="background:#3fb950">9</div>
+        <h2>Class Comparison — 2-D Embedding View</h2>
+        <span class="tag">visualisation</span>
+      </div>
+      <div class="step-body">
+        <div class="two-col">
+          <div>
+            <div class="chart-container" style="height:280px">
+              <canvas id="chart-embedding"></canvas>
+            </div>
+            <div class="canvas-label">Simulated 2-D PCA projection of feature vectors (different colours = different classes)</div>
+          </div>
+          <div>
+            <div class="eq-box">
+              <div class="eq-title">Softmax Classification</div>
+              Given feature vector $\mathbf{F}$, the head computes:
+              $$z_k = \mathbf{w}_k^T \mathbf{F} + b_k$$
+              $$\hat{p}_k = \frac{e^{z_k}}{\sum_j e^{z_j}}$$
+              Predicted class: $\hat{y} = \arg\max_k \hat{p}_k$
+            </div>
+            <div class="info">
+              Each <span style="color:var(--accent)">dot</span> represents one training image projected into 2-D space. The model learns a <strong>decision boundary</strong> (dashed line) that separates the classes.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /pipeline -->
+</div><!-- /main-wrap -->
+
+<footer>Built for high-school ML education · Teachable Machine Community Fork · Math rendered with KaTeX</footer>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════
+   State
+══════════════════════════════════════════════════════════════════ */
+const SIZE = 224;           // target image size (MobileNet expects 224×224)
+const NORM_DIVISOR = 127;   // normalisation: x / NORM_DIVISOR - 1  →  [-1, 1]
+const HIST_SCALE   = 100;   // shift factor for mapping [-1,1] → histogram bucket index
+const BYTES_PER_PIXEL = 4;  // RGBA — 4 bytes per pixel in ImageData
+let srcImg = null;          // HTMLImageElement loaded by user
+let resizedPixels = null;   // Uint8ClampedArray, SIZE×SIZE×BYTES_PER_PIXEL (RGBA)
+let histChart = null, trainLossChart = null, trainAccChart = null, embeddingChart = null;
+
+/* ══════════════════════════════════════════════════════════════════
+   Upload handling
+══════════════════════════════════════════════════════════════════ */
+const zone = document.getElementById('upload-zone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+zone.addEventListener('drop', e => {
+  e.preventDefault(); zone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) loadFile(f);
+});
+document.getElementById('file-input').addEventListener('change', e => {
+  if (e.target.files[0]) loadFile(e.target.files[0]);
+});
+
+function loadFile(file) {
+  const url = URL.createObjectURL(file);
+  loadImageFromURL(url, file.name);
+}
+
+/* ── sample image generators ── */
+function loadSampleImage(type) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 320;
+  const ctx = c.getContext('2d');
+  if (type === 'gradient') {
+    const grd = ctx.createLinearGradient(0,0,320,320);
+    grd.addColorStop(0,'#ff6b6b'); grd.addColorStop(0.5,'#48dbfb'); grd.addColorStop(1,'#1dd1a1');
+    ctx.fillStyle = grd; ctx.fillRect(0,0,320,320);
+    ctx.fillStyle='rgba(255,255,255,0.15)';
+    for(let i=0;i<20;i++){ ctx.beginPath(); ctx.arc(Math.random()*320,Math.random()*320,Math.random()*30+5,0,Math.PI*2); ctx.fill(); }
+  } else if (type === 'cat') {
+    ctx.fillStyle='#f4a261'; ctx.fillRect(0,0,320,320);
+    // simple cat face
+    ctx.fillStyle='#e76f51'; ctx.beginPath(); ctx.arc(160,160,100,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.ellipse(130,140,20,28,0,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(190,140,20,28,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#264653'; ctx.beginPath(); ctx.ellipse(130,140,10,18,-0.2,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(190,140,10,18,0.2,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#264653'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(130,175); ctx.lineTo(160,180); ctx.lineTo(190,175); ctx.stroke();
+    // ears
+    ctx.fillStyle='#e76f51';
+    ctx.beginPath(); ctx.moveTo(80,80); ctx.lineTo(100,130); ctx.lineTo(130,100); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(240,80); ctx.lineTo(220,130); ctx.lineTo(190,100); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#e9c46a'; ctx.font='bold 16px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('CAT 🐱',160,290);
+  } else {
+    ctx.fillStyle='#dfe6e9'; ctx.fillRect(0,0,320,320);
+    ctx.fillStyle='#b2bec3'; ctx.beginPath(); ctx.arc(160,160,110,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#636e72'; ctx.beginPath(); ctx.arc(120,130,22,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(200,130,22,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(160,175,18,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(113,123,8,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(193,123,8,0,Math.PI*2); ctx.fill();
+    // ears
+    ctx.fillStyle='#b2bec3';
+    ctx.beginPath(); ctx.moveTo(70,90); ctx.lineTo(100,150); ctx.lineTo(130,100); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(250,90); ctx.lineTo(220,150); ctx.lineTo(190,100); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='#636e72'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.arc(160,200,40,0.2,Math.PI-0.2); ctx.stroke();
+    ctx.fillStyle='#2d3436'; ctx.font='bold 16px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('DOG 🐶',160,295);
+  }
+  const url = c.toDataURL();
+  loadImageFromURL(url, type + ' (generated)');
+}
+
+function loadImageFromURL(url, name) {
+  const img = new Image();
+  img.onload = () => { srcImg = img; runPipeline(name); };
+  img.src = url;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Main pipeline runner
+══════════════════════════════════════════════════════════════════ */
+function runPipeline(name) {
+  document.getElementById('pipeline').style.display = 'block';
+
+  // Step 0 – original
+  drawOriginal(name);
+
+  // Step 1 – crop
+  const cropCanvas = doCrop();
+
+  // Step 2 – resize
+  const resizeCanvas = doResize(cropCanvas);
+
+  // capture pixel data once
+  resizedPixels = resizeCanvas.getContext('2d').getImageData(0,0,SIZE,SIZE).data;
+
+  // Step 3 – pixel matrix
+  drawChannelView('rgb');
+  buildPixelGrid();
+
+  // Step 4 – normalisation
+  buildHistChart();
+  buildNormTable();
+
+  // Step 5 – grayscale
+  drawGrayscale();
+
+  // Step 6 – shape SVG
+  drawShapeSVG();
+
+  // Step 7 – vector bars
+  drawVectorBars();
+
+  // Step 8 – training charts (static initial, animate on button)
+  buildTrainingCharts(false);
+
+  // Step 9 – embedding
+  buildEmbeddingChart();
+
+  // scroll to pipeline
+  document.getElementById('pipeline').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+/* ── Step 0 ── */
+function drawOriginal(name) {
+  const c = document.getElementById('canvas-original');
+  const maxDim = 280;
+  const scale = Math.min(1, maxDim / Math.max(srcImg.width, srcImg.height));
+  c.width  = srcImg.width  * scale;
+  c.height = srcImg.height * scale;
+  c.getContext('2d').drawImage(srcImg, 0, 0, c.width, c.height);
+  document.getElementById('label-original').textContent = `${srcImg.width} × ${srcImg.height} px · "${name}"`;
+  const area = document.getElementById('stats-original');
+  area.innerHTML = chip('Width', srcImg.width + ' px') + chip('Height', srcImg.height + ' px')
+    + chip('Channels', '3 (RGB)') + chip('Total values', (srcImg.width * srcImg.height * 3).toLocaleString());
+}
+
+/* ── Step 1 – crop ── */
+function doCrop() {
+  const W = srcImg.width, H = srcImg.height;
+  const s = Math.min(W, H);
+  const x0 = Math.floor((W - s) / 2);
+  const y0 = Math.floor((H - s) / 2);
+  const c = document.getElementById('canvas-crop');
+  c.width = c.height = 280;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(srcImg, x0, y0, s, s, 0, 0, 280, 280);
+  document.getElementById('label-crop').textContent = `${s} × ${s} px (cropped from ${W}×${H})`;
+  const area = document.getElementById('stats-crop');
+  area.innerHTML = chip('Crop size', s+'×'+s) + chip('Offset x₀', x0) + chip('Offset y₀', y0)
+    + chip('Aspect', '1 : 1 ✓');
+  return c;
+}
+
+/* ── Step 2 – resize ── */
+function doResize(src) {
+  const c = document.getElementById('canvas-resize');
+  c.width = c.height = SIZE;
+  c.getContext('2d').drawImage(src, 0, 0, SIZE, SIZE);
+  return c;
+}
+
+/* ── Step 3 – channel view ── */
+window.currentChannel = 'rgb';
+function showChannel(ch) {
+  window.currentChannel = ch;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.ch === ch));
+  document.getElementById('label-channel').textContent = ch.toUpperCase() + ' — 8×8 corner sample shown in table';
+  drawChannelView(ch);
+}
+function drawChannelView(ch) {
+  if (!resizedPixels) return;
+  const src = document.getElementById('canvas-resize');
+  const dst = document.getElementById('canvas-channel');
+  dst.width = dst.height = SIZE;
+  const ctx = dst.getContext('2d');
+  if (ch === 'rgb') { ctx.drawImage(src, 0,0); return; }
+  const id = ctx.createImageData(SIZE, SIZE);
+  const d = id.data;
+  for (let i=0; i<SIZE*SIZE; i++) {
+    const base = i * BYTES_PER_PIXEL;
+    const v = ch==='r' ? resizedPixels[base] : ch==='g' ? resizedPixels[base+1] : resizedPixels[base+2];
+    d[base]   = ch==='r' ? v : 0;
+    d[base+1] = ch==='g' ? v : 0;
+    d[base+2] = ch==='b' ? v : 0;
+    d[base+3] = 255;
+  }
+  ctx.putImageData(id, 0, 0);
+}
+function buildPixelGrid() {
+  const n = 8;
+  const tbl = document.getElementById('pixel-grid');
+  tbl.innerHTML = '';
+  for (let row=0; row<n; row++) {
+    const tr = document.createElement('tr');
+    for (let col=0; col<n; col++) {
+      const i = (row * SIZE + col) * BYTES_PER_PIXEL;
+      const r = resizedPixels[i], g = resizedPixels[i+1], b = resizedPixels[i+2];
+      const lum = 0.299*r + 0.587*g + 0.114*b;
+      const fg = lum > 140 ? '#000' : '#fff';
+      const td = document.createElement('td');
+      td.style.background = `rgb(${r},${g},${b})`;
+      td.style.color = fg;
+      td.title = `(${row},${col})`;
+      td.textContent = `${r},${g},${b}`;
+      tr.appendChild(td);
+    }
+    tbl.appendChild(tr);
+  }
+}
+
+/* ── Step 4 – normalisation ── */
+function buildHistChart() {
+  const raw = new Array(256).fill(0);
+  const norm = new Array(2 * HIST_SCALE + 1).fill(0); // -HIST_SCALE..+HIST_SCALE mapped to index
+  for (let i=0; i<resizedPixels.length; i+=BYTES_PER_PIXEL) {
+    for (let c=0;c<3;c++) {
+      const v = resizedPixels[i+c];
+      raw[v]++;
+      const nv = Math.round((v/NORM_DIVISOR - 1) * HIST_SCALE + HIST_SCALE); // shift to 0..200
+      if (nv>=0 && nv<=2*HIST_SCALE) norm[nv]++;
+    }
+  }
+  if (histChart) histChart.destroy();
+  const labels = Array.from({length:256}, (_,i) => i%32===0 ? i : '');
+  histChart = new Chart(document.getElementById('chart-hist'), {
+    type: 'bar',
+    data: {
+      labels: Array.from({length:256}, (_,i)=>i),
+      datasets: [
+        { label: 'Raw [0,255]', data: raw, backgroundColor: 'rgba(88,166,255,0.55)', borderWidth:0 },
+        { label: 'Normalised [−1,+1] (×127 offset)', data: norm.concat(new Array(55).fill(0)),
+          backgroundColor: 'rgba(63,185,80,0.55)', borderWidth:0 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#e6edf3' } } },
+      scales: {
+        x: { ticks: { color:'#8b949e', maxTicksLimit:8 }, grid: { color:'#21262d' } },
+        y: { ticks: { color:'#8b949e' }, grid: { color:'#21262d' } }
+      }
+    }
+  });
+}
+function buildNormTable() {
+  const samples = [0, 64, 127, 128, 192, 255];
+  const tbody = document.getElementById('norm-table');
+  // remove old rows
+  while (tbody.rows.length > 1) tbody.deleteRow(1);
+  for (const x of samples) {
+    const tr = document.createElement('tr');
+    const norm = (x/NORM_DIVISOR - 1).toFixed(4);
+    const mid  = (x/NORM_DIVISOR).toFixed(4);
+    tr.innerHTML = `<td>${x}</td><td>${mid}</td><td style="color:var(--green);font-weight:700">${norm}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+/* ── Step 5 – grayscale ── */
+function drawGrayscale() {
+  const c = document.getElementById('canvas-gray');
+  c.width = c.height = SIZE;
+  const ctx = c.getContext('2d');
+  const id = ctx.createImageData(SIZE,SIZE);
+  const d = id.data;
+  for (let i=0; i<SIZE*SIZE; i++) {
+    const base = i * BYTES_PER_PIXEL;
+    const r=resizedPixels[base], g=resizedPixels[base+1], b=resizedPixels[base+2];
+    const y = Math.round(0.2989*r + 0.5870*g + 0.1140*b);
+    d[base]=d[base+1]=d[base+2]=y; d[base+3]=255;
+  }
+  ctx.putImageData(id,0,0);
+}
+
+/* ── Step 6 – shape SVG ── */
+function drawShapeSVG() {
+  const svg = document.getElementById('shape-svg');
+  const shapes = [
+    { label: '[1, 224, 224, 3]', w:160, h:60, fill:'#1a2a4a', stroke:'var(--accent)' }
+  ];
+  const boxes = [
+    { x:10,  label:'H×W×C', sub:'224×224×3', color:'#58a6ff' },
+    { x:200, label:'expandDims', sub:'axis=0', color:'#e3b341', arrow:true },
+    { x:360, label:'B×H×W×C', sub:'1×224×224×3', color:'#3fb950' },
+    { x:570, label:'÷127 − 1', sub:'normalise', color:'#f78166', arrow:true },
+    { x:550, label:'', sub:'', color:'transparent' }
+  ];
+  let html='';
+  // box 1
+  html += box(10, 160, '#1a2a4a','#58a6ff','[224, 224, 3]', 'Tensor after\nfromPixels');
+  // arrow
+  html += arrow(172, 225);
+  // box 2
+  html += box(225, 160, '#1a2a4a','#e3b341','expandDims(0)', 'add batch\ndimension');
+  // arrow
+  html += arrow(387, 439);
+  // box 3
+  html += box(440, 200, '#1a2a4a','#3fb950','[1, 224, 224, 3]','Batched tensor\n(normalised)');
+  svg.innerHTML = html;
+  function box(x, w, fill, stroke, label, sub) {
+    return `<g>
+      <rect x="${x}" y="10" width="${w}" height="60" rx="8" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>
+      <text x="${x+w/2}" y="34" text-anchor="middle" fill="${stroke}" font-size="12" font-weight="bold" font-family="monospace">${label}</text>
+      <text x="${x+w/2}" y="54" text-anchor="middle" fill="#8b949e" font-size="10">${sub}</text>
+    </g>`;
+  }
+  function arrow(x1, x2) {
+    const y=40;
+    return `<line x1="${x1}" y1="${y}" x2="${x2-10}" y2="${y}" stroke="#30363d" stroke-width="2" marker-end="url(#arr)"/>`;
+  }
+  // add arrowhead marker
+  svg.insertAdjacentHTML('afterbegin',`<defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#30363d"/>
+    </marker></defs>`);
+}
+
+/* ── Step 7 – feature vector bars ── */
+function drawVectorBars() {
+  const wrap = document.getElementById('vector-bars');
+  wrap.innerHTML = '';
+  const N = 1280;
+  // simulate feature activations using pixel statistics
+  const vals = [];
+  const step = Math.floor(resizedPixels.length / (N * BYTES_PER_PIXEL)) || 1;
+  for (let i=0; i<N; i++) {
+    const idx = ((i * step) % (SIZE*SIZE)) * BYTES_PER_PIXEL;
+    const r=resizedPixels[idx], g=resizedPixels[idx+1], b=resizedPixels[idx+2];
+    vals.push((0.2989*r + 0.5870*g + 0.1140*b) / 255);
+  }
+  const max = Math.max(...vals);
+  const colors = ['#58a6ff','#3fb950','#f78166','#e3b341','#bc8cff'];
+  for (let i=0; i<N; i++) {
+    const div = document.createElement('div');
+    div.className = 'vbar';
+    const pct = max > 0 ? (vals[i]/max) : 0;
+    div.style.height = (pct * 78) + 'px';
+    div.style.background = colors[i % colors.length];
+    div.title = `dim ${i}: ${vals[i].toFixed(3)}`;
+    wrap.appendChild(div);
+  }
+}
+
+/* ── Step 8 – training charts ── */
+let trainingAnimating = false;
+let trainingData = { loss:[], acc:[], epochs:0 };
+
+function buildTrainingCharts(animate) {
+  const maxEp = 50;
+  const lossData=[], accData=[], labels=[];
+  for (let e=1; e<=maxEp; e++) {
+    labels.push(e);
+    const noise = (Math.random()-0.5)*0.05;
+    const t = e/maxEp;
+    lossData.push(+(1.6 * Math.exp(-3.5*t) + 0.05 + noise).toFixed(4));
+    accData.push(+(0.95 * (1 - Math.exp(-4*t)) + 0.03*Math.random()).toFixed(4));
+  }
+  trainingData = { loss:lossData, acc:accData, labels };
+
+  if (trainLossChart) trainLossChart.destroy();
+  if (trainAccChart) trainAccChart.destroy();
+
+  const commonOpts = {
+    responsive:true, maintainAspectRatio:false, animation:{duration: animate?600:0},
+    plugins:{ legend:{labels:{color:'#e6edf3'}} },
+    scales:{
+      x:{ticks:{color:'#8b949e'},grid:{color:'#21262d'},title:{display:true,text:'Epoch',color:'#8b949e'}},
+      y:{ticks:{color:'#8b949e'},grid:{color:'#21262d'}}
+    }
+  };
+
+  trainLossChart = new Chart(document.getElementById('chart-train-loss'), {
+    type:'line', data:{
+      labels, datasets:[{
+        label:'Training Loss', data:animate?[lossData[0]]:lossData,
+        borderColor:'#f78166', backgroundColor:'rgba(247,129,102,0.12)',
+        fill:true, tension:0.4, pointRadius:0
+      },{
+        label:'Validation Loss', data:animate?[lossData[0]*1.1]:lossData.map(v=>v*1.1+0.02*(Math.random()-0.5)),
+        borderColor:'#e3b341', backgroundColor:'rgba(227,179,65,0.08)',
+        fill:true, tension:0.4, pointRadius:0, borderDash:[4,4]
+      }]
+    },
+    options:{...commonOpts, scales:{...commonOpts.scales, y:{...commonOpts.scales.y, title:{display:true,text:'Loss',color:'#8b949e'}}}}
+  });
+
+  trainAccChart = new Chart(document.getElementById('chart-train-acc'), {
+    type:'line', data:{
+      labels, datasets:[{
+        label:'Training Acc', data:animate?[accData[0]]:accData,
+        borderColor:'#3fb950', backgroundColor:'rgba(63,185,80,0.12)',
+        fill:true, tension:0.4, pointRadius:0
+      },{
+        label:'Validation Acc', data:animate?[accData[0]*0.97]:accData.map(v=>v*0.97-0.01*(Math.random())),
+        borderColor:'#58a6ff', backgroundColor:'rgba(88,166,255,0.08)',
+        fill:true, tension:0.4, pointRadius:0, borderDash:[4,4]
+      }]
+    },
+    options:{...commonOpts, scales:{...commonOpts.scales, y:{...commonOpts.scales.y, min:0, max:1, title:{display:true,text:'Accuracy',color:'#8b949e'}}}}
+  });
+
+  if (animate) animateTrainingCharts(lossData, accData, labels);
+}
+
+function animateTrainingCharts(lossData, accData, labels) {
+  if (trainingAnimating) return;
+  trainingAnimating = true;
+  let epoch = 1;
+  const valLoss = lossData.map(v => v*1.1+0.02*(Math.random()-0.5));
+  const valAcc  = accData.map(v  => v*0.97-0.01*Math.random());
+
+  trainLossChart.data.datasets[0].data = [];
+  trainLossChart.data.datasets[1].data = [];
+  trainAccChart.data.datasets[0].data  = [];
+  trainAccChart.data.datasets[1].data  = [];
+
+  const tick = setInterval(() => {
+    trainLossChart.data.datasets[0].data.push(lossData[epoch-1]);
+    trainLossChart.data.datasets[1].data.push(valLoss[epoch-1]);
+    trainAccChart.data.datasets[0].data.push(accData[epoch-1]);
+    trainAccChart.data.datasets[1].data.push(valAcc[epoch-1]);
+    trainLossChart.update('none');
+    trainAccChart.update('none');
+    if (++epoch > lossData.length) { clearInterval(tick); trainingAnimating = false; }
+  }, 60);
+}
+
+function animateTraining() { buildTrainingCharts(true); }
+
+/* ── Step 9 – embedding ── */
+function buildEmbeddingChart() {
+  const classColors = ['#58a6ff','#3fb950','#f78166','#e3b341'];
+  const classNames  = ['Class A','Class B','Class C','Class D'];
+  const datasets = classColors.map((col, k) => {
+    const cx = [-2,-2,2,2][k]*1.2 + (Math.random()-0.5);
+    const cy = [-2,2,-2,2][k]*1.2 + (Math.random()-0.5);
+    const pts = Array.from({length:30}, () => ({
+      x: cx + (Math.random()-0.5)*1.8,
+      y: cy + (Math.random()-0.5)*1.8
+    }));
+    return { label:classNames[k], data:pts, backgroundColor:col+'cc', pointRadius:5, pointHoverRadius:7 };
+  });
+  if (embeddingChart) embeddingChart.destroy();
+  embeddingChart = new Chart(document.getElementById('chart-embedding'), {
+    type:'scatter', data:{ datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{labels:{color:'#e6edf3'}},
+        tooltip:{callbacks:{label: ctx=>`(${ctx.parsed.x.toFixed(2)}, ${ctx.parsed.y.toFixed(2)})`}}
+      },
+      scales:{
+        x:{ticks:{color:'#8b949e'},grid:{color:'#21262d'},title:{display:true,text:'PCA dimension 1',color:'#8b949e'}},
+        y:{ticks:{color:'#8b949e'},grid:{color:'#21262d'},title:{display:true,text:'PCA dimension 2',color:'#8b949e'}}
+      }
+    }
+  });
+}
+
+/* ── utility ── */
+function chip(label, value) {
+  return `<div class="stat-chip">${label}<span>${value}</span></div>`;
+}
+</script>
+</body>
+</html>
